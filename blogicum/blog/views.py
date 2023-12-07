@@ -18,21 +18,12 @@ User = get_user_model()
 def post_list_request(manager=Post.objects):
     return manager.select_related(
         'location', 'author', 'category'
-    ).only(
-        'id',
-        'title',
-        'text',
-        'pub_date',
-        'location__is_published',
-        'location__name',
-        'author__username',
-        'category__slug',
-        'category__title',
-        'author'
     ).filter(
         pub_date__lte=Now(),
         is_published=True,
         category__is_published=True
+    ).order_by(
+        '-pub_date'
     )
 
 
@@ -42,17 +33,17 @@ class ProfileListView(ListView):
     profile = None
 
     def get_queryset(self):
-        return Post.objects.select_related(
-            'location', 'author', 'category'
-        ).filter(
-            author=User.objects.get(username=self.kwargs['username'])
-        ).order_by(
-            '-pub_date'
-        )
+        self.profile = get_object_or_404(User,
+                                         username=self.kwargs['username'])
 
-    def dispatch(self, request, *args, **kwargs):
-        self.profile = get_object_or_404(User, username=kwargs['username'])
-        return super().dispatch(request, *args, **kwargs)
+        if self.request.user == self.profile:
+            return self.profile.post_set.select_related(
+                'location', 'author', 'category'
+            ).order_by(
+                '-pub_date'
+            )
+        else:
+            return post_list_request(self.profile.post_set)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -86,17 +77,17 @@ class IndexListView(ListView):
 class PostDetailView(DetailView):
     model = Post
     template_name: str = 'blog/detail.html'
+    pk_url_kwarg = 'post_pk'
 
-    def dispatch(self, request, *args, **kwargs):
-        instance = get_object_or_404(
-            Post, pk=kwargs['pk']
-        )
+    def get_object(self):
+        obj = super().get_object()
 
-        if ((instance.author != request.user)
-            and (instance.is_published is False
-                 or instance.category.is_published is False)):
-            raise Http404
-        return super().dispatch(request, *args, **kwargs)
+        if ((obj.author != self.request.user)
+            and (obj.is_published is False
+                 or obj.category.is_published is False)):
+            raise Http404('Страница не найдена')
+
+        return obj
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -152,12 +143,12 @@ class PostUpdateView(LoginRequiredMixin, PostMixin, UpdateView):
 
         if instance.author != request.user:
             return redirect('blog:post_detail',
-                            pk=kwargs['pk'])
+                            post_pk=kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
     def get_success_url(self) -> str:
         return reverse('blog:post_detail',
-                       kwargs={'pk': self.object.pk})
+                       kwargs={'post_pk': self.object.pk})
 
 
 class PostDeleteView(LoginRequiredMixin, PostMixin, DeleteView):
@@ -166,14 +157,12 @@ class PostDeleteView(LoginRequiredMixin, PostMixin, DeleteView):
 
         if instance.author != request.user:
             return redirect('blog:post_detail',
-                            pk=kwargs['pk'])
+                            post_pk=kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        print(kwargs)
-        instance = self.object
-        form = PostForm(instance=instance)
+        form = PostForm(instance=self.object)
         context['form'] = form
         return context
 
@@ -198,11 +187,10 @@ class CommentCreateView(LoginRequiredMixin, CommentBase, CreateView):
     def form_valid(self, form):
         form.instance.author = self.request.user
         form.instance.post = self.post_
-        form.instance.pub_date = Now()
         return super().form_valid(form)
 
     def get_success_url(self) -> str:
-        return reverse('blog:post_detail', kwargs={'pk': self.post_.pk})
+        return reverse('blog:post_detail', kwargs={'post_pk': self.post_.pk})
 
 
 class CommentUpdateView(LoginRequiredMixin, CommentBase, UpdateView):
@@ -213,12 +201,12 @@ class CommentUpdateView(LoginRequiredMixin, CommentBase, UpdateView):
 
         if instance.author != request.user:
             return redirect('blog:post_detail',
-                            pk=kwargs['post_id'])
+                            post_pk=kwargs['post_id'])
         return super().dispatch(request, *args, **kwargs)
 
     def get_success_url(self) -> str:
         return reverse('blog:post_detail',
-                       kwargs={'pk': self.kwargs['post_id']})
+                       kwargs={'post_pk': self.kwargs['post_id']})
 
 
 class CommentDeleteView(LoginRequiredMixin, CommentBase, DeleteView):
@@ -227,9 +215,9 @@ class CommentDeleteView(LoginRequiredMixin, CommentBase, DeleteView):
 
         if instance.author != request.user:
             return redirect('blog:post_detail',
-                            pk=kwargs['post_id'])
+                            post_pk=kwargs['post_id'])
         return super().dispatch(request, *args, **kwargs)
 
     def get_success_url(self) -> str:
         return reverse('blog:post_detail',
-                       kwargs={'pk': self.kwargs['post_id']})
+                       kwargs={'post_pk': self.kwargs['post_id']})
