@@ -36,23 +36,13 @@ class ProfileListView(ListView):
         self.profile = get_object_or_404(User,
                                          username=self.kwargs['username'])
 
-        # Не лишняя
         if self.request.user == self.profile:
-            # Если сам пользователь зайдёт в профиль, то показвываем и
-            # не опубликованный посты и посты с не опубликованными категориями
             return self.profile.post_set.select_related(
                 'location', 'author', 'category'
             ).order_by(
                 '-pub_date'
             )
-        else:
-            '''
-              А тут происходит фильтрация:
-                  pub_date__lte=Now(),
-                  is_published=True,
-                  category__is_published=True
-            '''
-            return post_list_request(self.profile.post_set)
+        return post_list_request(self.profile.post_set)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
